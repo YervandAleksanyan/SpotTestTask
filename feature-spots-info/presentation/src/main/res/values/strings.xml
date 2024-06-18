@@ -1,0 +1,4 @@
+<resources>
+    <string name="graph_button">Посмотреть график</string>
+    <string name="table_button">Посмотреть таблицу</string>
+</resources>
