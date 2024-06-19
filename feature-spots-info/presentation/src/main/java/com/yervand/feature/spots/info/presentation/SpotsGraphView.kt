@@ -3,9 +3,12 @@ package com.yervand.feature.spots.info.presentation
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import com.yervand.core.entities.Spot
 import kotlin.math.absoluteValue
@@ -13,7 +16,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
-
 
 class SpotsGraphView @JvmOverloads constructor(
     context: Context,
@@ -28,8 +30,15 @@ class SpotsGraphView @JvmOverloads constructor(
     private var axesPaint: Paint = Paint()
     private var linePaint: Paint = Paint()
     private var thresholdLinePaint: Paint = Paint()
-    private var textPaint: Paint = Paint()
     private var wholeCanvasPaint: Paint = Paint()
+    private val textPaint: Paint
+        get() =
+            Paint().apply {
+                color = Color.WHITE
+                style = Paint.Style.FILL
+                textSize = TEXT_SIZE.toPx() / scale
+                textAlign = Paint.Align.CENTER
+            }
 
     private val wholeCanvasRect: Rect
         get() = Rect(0, 0, 0 + width, 0 + height)
@@ -42,14 +51,50 @@ class SpotsGraphView @JvmOverloads constructor(
     private var maxX = 0f
     private var minX = 0f
 
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
+
+    private val canvasMatrix = Matrix().apply {
+        setTranslate(0f, 0f)
+        setScale(1f, 1f)
+    }
+
+    private var scale = 1f
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    private val scaleGestureDetector = ScaleGestureDetector(
+        context,
+        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                var scaleFactor = 1f + (detector.scaleFactor-1f) * SCALE_MULTIPLIER
+                val newScale = scale * scaleFactor
+                if (newScale > MAX_SCALE) {
+                    scaleFactor = MAX_SCALE / scale
+                } else if (newScale < 1f) {
+                    scaleFactor = 1f / scale
+                }
+
+                scale = (scale*scaleFactor)
+                canvasMatrix.postScale(scaleFactor, scaleFactor, detector.focusX, detector.focusY)
+                constrainTranslation()
+
+                return scale < MAX_SCALE
+            }
+        }
+    )
+
     private val thresholdFrequency: Int // in units
         get() {
             val maxAbsoluteX = spots.map { it.x.absoluteValue }.maxOf { it }
-            return if(maxAbsoluteX < MAX_THRESHOLD_FREQUENCY) {
+            val initialThresholdFrequency = if(maxAbsoluteX < MAX_THRESHOLD_FREQUENCY) {
                 (maxAbsoluteX/2).roundToInt()
             } else {
                 MAX_THRESHOLD_FREQUENCY
             }
+            return (initialThresholdFrequency/scale).roundToInt()
         }
 
     private val canvasStart: Float
@@ -97,6 +142,8 @@ class SpotsGraphView @JvmOverloads constructor(
         }
 
     init {
+        setOnTouchListener()
+
         wholeCanvasPaint.color = Color.RED
         wholeCanvasPaint.style = Paint.Style.FILL
 
@@ -115,11 +162,6 @@ class SpotsGraphView @JvmOverloads constructor(
         thresholdLinePaint.color = Color.WHITE
         thresholdLinePaint.style = Paint.Style.STROKE
         thresholdLinePaint.strokeWidth = THRESHOLD_LINE_WIDTH_DP.toPx()
-
-        textPaint.color = Color.WHITE
-        textPaint.style = Paint.Style.FILL
-        textPaint.textSize = TEXT_SIZE.toPx()
-        textPaint.textAlign = Paint.Align.CENTER
     }
 
     fun setSpots(spots: List<Spot>) {
@@ -139,6 +181,7 @@ class SpotsGraphView @JvmOverloads constructor(
         )
 
         canvas.apply {
+            concat(canvasMatrix)
             drawAxes()
             drawAndConnectSpots()
             drawThresholds()
@@ -182,7 +225,7 @@ class SpotsGraphView @JvmOverloads constructor(
     private fun Canvas.drawThresholds() {
         val thresholdFrequencyPx = thresholdFrequency * unitSizePx
 
-        val thresholdNumberSkipCount = (TEXT_SIZE.toPx() / thresholdFrequencyPx).roundToInt()
+        val thresholdNumberSkipCount = (textPaint.textSize / thresholdFrequencyPx).roundToInt()
 
         // drawing vertical thresholds
         var lastThresholdPosition = horizontalCenter + thresholdFrequencyPx
@@ -200,7 +243,7 @@ class SpotsGraphView @JvmOverloads constructor(
                 drawText(
                     thresholdNumber.toString(),
                     lastThresholdPosition,
-                    canvasBottom + TEXT_PADDING_MULTIPLIER * TEXT_SIZE.toPx(),
+                    canvasBottom + TEXT_PADDING_MULTIPLIER * textPaint.textSize,
                     textPaint
                 )
             }
@@ -224,7 +267,7 @@ class SpotsGraphView @JvmOverloads constructor(
                 drawText(
                     thresholdNumber.toString(),
                     lastThresholdPosition,
-                    canvasBottom + TEXT_PADDING_MULTIPLIER * TEXT_SIZE.toPx(),
+                    canvasBottom + TEXT_PADDING_MULTIPLIER * textPaint.textSize,
                     textPaint
                 )
             }
@@ -246,7 +289,7 @@ class SpotsGraphView @JvmOverloads constructor(
             )
             drawText(
                 thresholdNumber.toString(),
-                canvasStart - TEXT_PADDING_MULTIPLIER * TEXT_SIZE.toPx(),
+                canvasStart - TEXT_PADDING_MULTIPLIER * textPaint.textSize,
                 lastThresholdPosition,
                 textPaint
             )
@@ -266,13 +309,61 @@ class SpotsGraphView @JvmOverloads constructor(
             )
             drawText(
                 thresholdNumber.toString(),
-                canvasStart - TEXT_PADDING_MULTIPLIER * TEXT_SIZE.toPx(),
+                canvasStart - TEXT_PADDING_MULTIPLIER * textPaint.textSize,
                 lastThresholdPosition,
                 textPaint
             )
             thresholdNumber += thresholdFrequency
             lastThresholdPosition -= thresholdFrequencyPx
         }
+    }
+
+    @Suppress("ClickableViewAccessibility")
+    private fun setOnTouchListener() {
+        setOnTouchListener { _, event ->
+            scaleGestureDetector.onTouchEvent(event)
+            if(event.pointerCount == 1) {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        lastTouchX = event.x
+                        lastTouchY = event.y
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.x - lastTouchX
+                        val dy = event.y - lastTouchY
+                        canvasMatrix.postTranslate(dx, dy)
+                        constrainTranslation()
+                        invalidate()
+                        lastTouchX = event.x
+                        lastTouchY = event.y
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        lastTouchX = 0f
+                        lastTouchY = 0f
+                    }
+                }
+            }
+            true
+        }
+    }
+
+    // Ensure the translation keeps the content within view boundaries
+    private fun constrainTranslation() {
+        val matrixValues = FloatArray(9)
+        canvasMatrix.getValues(matrixValues)
+
+        val translateX = matrixValues[Matrix.MTRANS_X]
+        val translateY = matrixValues[Matrix.MTRANS_Y]
+
+        val contentWidth = (width * scale).toInt()
+        val contentHeight = (height * scale).toInt()
+
+        val minXTranslation = (width - contentWidth).toFloat()
+        val minYTranslation = (height - contentHeight).toFloat()
+
+        matrixValues[Matrix.MTRANS_X] = translateX.coerceIn(minXTranslation, 0f)
+        matrixValues[Matrix.MTRANS_Y] = translateY.coerceIn(minYTranslation, 0f)
+        canvasMatrix.setValues(matrixValues)
     }
 
     /**
@@ -334,5 +425,7 @@ class SpotsGraphView @JvmOverloads constructor(
         private const val MAX_THRESHOLD_FREQUENCY = 10
         private const val TEXT_SIZE = 16
         private const val TEXT_PADDING_MULTIPLIER = 1.5f
+        private const val MAX_SCALE = 5f
+        private const val SCALE_MULTIPLIER = 0.4f
     }
 }
