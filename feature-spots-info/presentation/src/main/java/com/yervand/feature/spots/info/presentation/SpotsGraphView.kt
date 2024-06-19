@@ -42,6 +42,16 @@ class SpotsGraphView @JvmOverloads constructor(
     private var maxX = 0f
     private var minX = 0f
 
+    private val thresholdFrequency: Int // in units
+        get() {
+            val maxAbsoluteX = spots.map { it.x.absoluteValue }.maxOf { it }
+            return if(maxAbsoluteX < MAX_THRESHOLD_FREQUENCY) {
+                (maxAbsoluteX/2).roundToInt()
+            } else {
+                MAX_THRESHOLD_FREQUENCY
+            }
+        }
+
     private val canvasStart: Float
         get() = paddingPx
 
@@ -170,15 +180,15 @@ class SpotsGraphView @JvmOverloads constructor(
     }
 
     private fun Canvas.drawThresholds() {
-        val thresholdFrequencyPx = THRESHOLD_FREQUENCY * unitSizePx
+        val thresholdFrequencyPx = thresholdFrequency * unitSizePx
 
         val thresholdNumberSkipCount = (TEXT_SIZE.toPx() / thresholdFrequencyPx).roundToInt()
 
         // drawing vertical thresholds
         var lastThresholdPosition = horizontalCenter + thresholdFrequencyPx
-        var thresholdNumber = THRESHOLD_FREQUENCY
+        var thresholdNumber = thresholdFrequency
         var lastThresholdIndex = 0
-        while (lastThresholdPosition < canvasEnd) {
+        while (lastThresholdPosition <= canvasEnd) {
             drawLine(
                 lastThresholdPosition,
                 canvasTop,
@@ -195,14 +205,14 @@ class SpotsGraphView @JvmOverloads constructor(
                 )
             }
             lastThresholdIndex++
-            thresholdNumber += THRESHOLD_FREQUENCY
+            thresholdNumber += thresholdFrequency
             lastThresholdPosition += thresholdFrequencyPx
         }
 
         lastThresholdPosition = horizontalCenter - thresholdFrequencyPx
-        thresholdNumber = -THRESHOLD_FREQUENCY
+        thresholdNumber = -thresholdFrequency
         lastThresholdIndex = 0
-        while (lastThresholdPosition > canvasStart) {
+        while (lastThresholdPosition >= canvasStart) {
             drawLine(
                 lastThresholdPosition,
                 canvasTop,
@@ -219,14 +229,14 @@ class SpotsGraphView @JvmOverloads constructor(
                 )
             }
             lastThresholdIndex++
-            thresholdNumber -= THRESHOLD_FREQUENCY
+            thresholdNumber -= thresholdFrequency
             lastThresholdPosition -= thresholdFrequencyPx
         }
 
         // drawing horizontal thresholds
         lastThresholdPosition = verticalCenter + thresholdFrequencyPx
-        thresholdNumber = -THRESHOLD_FREQUENCY
-        while (lastThresholdPosition < canvasBottom) {
+        thresholdNumber = -thresholdFrequency
+        while (lastThresholdPosition <= canvasBottom) {
             drawLine(
                 canvasStart,
                 lastThresholdPosition,
@@ -240,13 +250,13 @@ class SpotsGraphView @JvmOverloads constructor(
                 lastThresholdPosition,
                 textPaint
             )
-            thresholdNumber -= THRESHOLD_FREQUENCY
+            thresholdNumber -= thresholdFrequency
             lastThresholdPosition += thresholdFrequencyPx
         }
 
         lastThresholdPosition = verticalCenter - thresholdFrequencyPx
-        thresholdNumber = THRESHOLD_FREQUENCY
-        while (lastThresholdPosition > canvasTop) {
+        thresholdNumber = thresholdFrequency
+        while (lastThresholdPosition >= canvasTop) {
             drawLine(
                 canvasStart,
                 lastThresholdPosition,
@@ -260,7 +270,7 @@ class SpotsGraphView @JvmOverloads constructor(
                 lastThresholdPosition,
                 textPaint
             )
-            thresholdNumber += THRESHOLD_FREQUENCY
+            thresholdNumber += thresholdFrequency
             lastThresholdPosition -= thresholdFrequencyPx
         }
     }
@@ -321,7 +331,7 @@ class SpotsGraphView @JvmOverloads constructor(
         private const val AXES_WIDTH_DP = 2
         private const val THRESHOLD_LINE_WIDTH_DP = 0.3f
         private const val PADDING_DP = 36
-        private const val THRESHOLD_FREQUENCY = 10
+        private const val MAX_THRESHOLD_FREQUENCY = 10
         private const val TEXT_SIZE = 16
         private const val TEXT_PADDING_MULTIPLIER = 1.5f
     }
